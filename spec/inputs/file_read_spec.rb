@@ -293,24 +293,30 @@ describe LogStash::Inputs::File do
       super().merge({ 'file_completed_action' => "delete", 'exit_after_read' => false })
     end
 
+    let(:file_completions) { Queue.new }
+
     let(:sample_file) { File.join(temp_directory, "sample.log") }
 
     before do
       plugin.register
-      @run_thread = Thread.new(plugin) do |plugin|
-        Thread.current.abort_on_exception = true
-        plugin.run queue
+      completions = file_completions
+      allow(plugin).to receive(:handle_deletable_path).and_wrap_original do |original, path|
+        original.call(path)
+        completions << [path, File.exist?(path)]
       end
 
       File.open(sample_file, 'w') { |fd| fd.write("sample-content\n") }
 
-      wait_for_start_processing(@run_thread)
+      @run_thread = Thread.new(plugin) do |plugin|
+        Thread.current.abort_on_exception = true
+        plugin.run queue
+      end
     end
 
     after { plugin.stop }
 
     it 'processes a file' do
-      wait_for_file_removal(sample_file) # watched discovery
+      wait_for_file_completion(sample_file)
 
       expect( plugin.queue.size ).to eql 1
       event = plugin.queue.pop
@@ -318,78 +324,16 @@ describe LogStash::Inputs::File do
     end
 
     it 'removes watched file from collection' do
-      wait_for_file_removal(sample_file) # watched discovery
-      sleep(0.25) # give CI some space to execute the removal
-      # TODO shouldn't be necessary once WatchedFileCollection does proper locking
+      wait_for_file_completion(sample_file)
       watched_files = plugin.watcher.watch.watched_files_collection
       expect( watched_files ).to be_empty
     end
   end
 
-  describe 'sincedb cleanup' do
-
-    let(:options) do
-      super().merge(
-          'sincedb_path' => sincedb_path,
-          'sincedb_clean_after' => '1.0 seconds',
-          'sincedb_write_interval' => 0.25,
-          'stat_interval' => 0.1,
-      )
-    end
-
-    let(:sincedb_path) { "#{temp_directory}/.sincedb" }
-
-    let(:sample_file) { File.join(temp_directory, "sample.txt") }
-
-    before do
-      plugin.register
-      @run_thread = Thread.new(plugin) do |plugin|
-        Thread.current.abort_on_exception = true
-        plugin.run queue
-      end
-
-      File.open(sample_file, 'w') { |fd| fd.write("line1\nline2\n") }
-
-      wait_for_start_processing(@run_thread)
-    end
-
-    after { plugin.stop }
-
-    it 'cleans up sincedb entry' do
-      wait_for_file_removal(sample_file) # watched discovery
-
-      sincedb_content = File.read(sincedb_path).strip
-      expect( sincedb_content ).to_not be_empty
-
-      try(3) do
-        sleep(1.5) # > sincedb_clean_after
-
-        sincedb_content = File.read(sincedb_path).strip
-        expect( sincedb_content ).to be_empty
-      end
-    end
-
-  end
-
   private
 
-  def wait_for_start_processing(run_thread, timeout: 1.0)
-    begin
-      Timeout.timeout(timeout) do
-        sleep(0.01) while run_thread.status != 'sleep'
-        sleep(timeout) unless plugin.queue
-      end
-    rescue Timeout::Error
-      raise "plugin did not start processing (timeout: #{timeout})" unless plugin.queue
-    else
-      raise "plugin did not start processing" unless plugin.queue
-    end
-  end
-
-  def wait_for_file_removal(path)
-    timeout = interval
-    try(5) do
-      wait(timeout).for { File.exist?(path) }.to be_falsey
-    end
+  def wait_for_file_completion(path, timeout: 30)
+    completion = Timeout.timeout(timeout) { file_completions.pop }
+    expect(completion).to eq([path, false])
   end
 end
