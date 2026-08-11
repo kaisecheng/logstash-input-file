@@ -1,4 +1,5 @@
 # encoding: utf-8
+require 'timeout'
 require_relative 'spec_helper'
 require 'filewatch/watch'
 
@@ -20,11 +21,27 @@ module FileWatch
 
     subject(:watch) { described_class.new(discoverer, processor, settings) }
 
-    it 'flushes sincedb after each sleep interval' do
-      allow(watch).to receive(:sleep) { watch.quit }
+    it 'flushes sincedb after a sleep interval' do
+      sleep_started = Queue.new
+      sleep_release = Queue.new
+      allow(watch).to receive(:sleep) do
+        sleep_started << true
+        sleep_release.pop
+      end
 
-      watch.subscribe(observer, sincedb_collection)
+      run_thread = Thread.new do
+        Thread.current.abort_on_exception = true
+        watch.subscribe(observer, sincedb_collection)
+      end
 
+      begin
+        Timeout.timeout(30) { sleep_started.pop }
+      ensure
+        watch.quit
+        sleep_release << true
+      end
+
+      expect(run_thread.join(30)).not_to be_nil
       expect(sincedb_collection).to have_received(:flush_at_interval).once
     end
   end

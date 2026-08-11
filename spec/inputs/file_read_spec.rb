@@ -340,7 +340,7 @@ describe LogStash::Inputs::File do
 
       it 'cleans up sincedb entry' do
         wait_for_file_completion(sample_file)
-        expect(@run_thread.join(30)).to equal(@run_thread)
+        expect(@run_thread.join(30)).not_to be_nil
 
         sincedb_collection = plugin.watcher.sincedb_collection
         expect(sincedb_collection.keys.size).to eq(1)
