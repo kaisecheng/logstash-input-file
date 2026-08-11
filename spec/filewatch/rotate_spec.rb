@@ -74,7 +74,7 @@ module FileWatch
           end
           .then("wait for expectation") do
             sleep(0.25) # if ENV['CI']
-            wait(2).for { listener1.calls }.to eq([:open, :accept, :accept, :accept])
+            wait(2).for { listener1.calls_history }.to eq([:open, :accept, :accept, :accept])
           end
           .then("quit") do
             tailing.quit
@@ -255,7 +255,7 @@ module FileWatch
         actions.assert_no_errors
         expected_calls = ([:accept] * 66).unshift(:open)
         expect(listener1.lines.uniq).to eq([line1])
-        expect(listener1.calls).to eq(expected_calls)
+        expect(listener1.calls_history).to eq(expected_calls)
         expect(sincedb_path.readlines.size).to eq(2)
       end
     end
@@ -291,7 +291,7 @@ module FileWatch
         tailing.subscribe(observer)
         actions.assert_no_errors
         expect(listener1.lines).to eq([line1, line2, line3])
-        expect(listener1.calls).to eq([:open, :accept, :accept, :accept])
+        expect(listener1.calls_history).to eq([:open, :accept, :accept, :accept])
       end
     end
 

@@ -48,7 +48,7 @@ module FileWatch
           reading.watch_this(watch_dir)
         end
         .then("wait") do
-          wait(2).for{listener1.calls.last}.to eq(:delete)
+          wait(2).for{listener1.calls_history.last}.to eq(:delete)
         end
         .then("quit") do
           reading.quit
@@ -58,7 +58,7 @@ module FileWatch
         actions.activate_quietly
         reading.subscribe(observer)
         actions.assert_no_errors
-        expect(listener1.calls).to eq([:open, :accept, :accept, :eof, :delete])
+        expect(listener1.calls_history).to eq([:open, :accept, :accept, :eof, :delete])
         expect(listener1.lines).to eq(["line1", "line2"])
       end
     end
@@ -73,7 +73,7 @@ module FileWatch
           reading.watch_this(watch_dir)
         end
         .then("wait") do
-          wait(2).for{listener1.calls.last}.to eq(:delete)
+          wait(2).for{listener1.calls_history.last}.to eq(:delete)
         end
         .then("quit") do
           reading.quit
@@ -83,7 +83,7 @@ module FileWatch
         actions.activate_quietly
         reading.subscribe(observer)
         actions.assert_no_errors
-        expect(listener1.calls).to eq([:open, :accept, :accept, :eof, :delete])
+        expect(listener1.calls_history).to eq([:open, :accept, :accept, :eof, :delete])
         expect(listener1.lines).to eq(["line1", "line2"])
       end
     end
@@ -104,7 +104,7 @@ module FileWatch
           reading.watch_this(watch_dir)
         end
         .then("wait") do
-          wait(2).for{listener1.calls.last == :delete && listener2.calls.last == :delete}.to eq(true)
+          wait(2).for{listener1.calls_history.last == :delete && listener2.calls_history.last == :delete}.to eq(true)
         end
         .then("quit") do
           reading.quit
@@ -114,8 +114,8 @@ module FileWatch
         actions.activate_quietly
         reading.subscribe(observer)
         actions.assert_no_errors
-        expect(listener1.calls).to eq([:open, :accept, :accept, :eof, :delete])
-        expect(listener2.calls).to eq([:open, :accept, :accept, :eof, :delete])
+        expect(listener1.calls_history).to eq([:open, :accept, :accept, :eof, :delete])
+        expect(listener2.calls_history).to eq([:open, :accept, :accept, :eof, :delete])
         expect(lines).to eq(%w(string1 stringA string2 stringB))
       end
     end
@@ -130,7 +130,7 @@ module FileWatch
           reading.watch_this(watch_dir)
         end
         .then("wait") do
-          wait(2).for{listener1.calls.last}.to eq(:delete)
+          wait(2).for{listener1.calls_history.last}.to eq(:delete)
         end
         .then("quit") do
           reading.quit
@@ -140,7 +140,7 @@ module FileWatch
         actions.activate_quietly
         reading.subscribe(observer)
         actions.assert_no_errors
-        expect(listener1.calls).to eq([:open, :accept, :eof, :delete])
+        expect(listener1.calls_history).to eq([:open, :accept, :eof, :delete])
         expect(listener1.lines).to eq(["line1\nline2"])
         sincedb_record_fields = File.read(sincedb_path).split(" ")
         position_field_index = 3
@@ -171,13 +171,13 @@ module FileWatch
           reading.watch_this(watch_dir)
         end
         .then("wait12") do
-          wait(2).for { listener1.calls.last == :delete && listener2.calls.last == :delete }.to eq(true)
+          wait(2).for { listener1.calls_history.last == :delete && listener2.calls_history.last == :delete }.to eq(true)
         end
         .then_after(2, "create3") do
           File.open(file_path3, "w") { |file| file.write("string31\nstring32") }
         end
         .then("wait3") do
-          wait(2).for { listener3.calls.last == :delete }.to eq(true)
+          wait(2).for { listener3.calls_history.last == :delete }.to eq(true)
         end
         .then("quit") do
           reading.quit
@@ -233,7 +233,7 @@ module FileWatch
         File.open(file_path3, "w") { |file| file.write("line1\nline2\n") }
         reading.watch_this(watch_dir)
         reading.subscribe(observer)
-        expect(listener3.calls).to eq([:open, :accept, :accept, :eof, :delete, :reading_completed])
+        expect(listener3.calls_history).to eq([:open, :accept, :accept, :eof, :delete, :reading_completed])
       end
 
       it "sincedb works correctly" do
@@ -251,8 +251,8 @@ module FileWatch
         reading.subscribe(observer)
         File.open(file_path6, "w") { |file|  file.write("foob\nbar\n") }
         expect(listener3.lines).to eq(["line1", "line2"])
-        expect(listener3.calls).to eq([:open, :accept, :accept, :eof, :delete, :reading_completed])
-        expect(listener6.calls).to eq([])
+        expect(listener3.calls_history).to eq([:open, :accept, :accept, :eof, :delete, :reading_completed])
+        expect(listener6.calls_history).to eq([])
       end
     
     end
@@ -264,7 +264,7 @@ module FileWatch
           reading.watch_this(watch_dir)
         end
         .then("wait") do
-          wait(1).for{listener1.calls.last}.to eq(:delete)
+          wait(1).for{listener1.calls_history.last}.to eq(:delete)
         end
         .then("quit") do
           reading.quit
@@ -279,7 +279,7 @@ module FileWatch
           actions.activate_quietly
           reading.subscribe(observer)
           actions.assert_no_errors
-          expect(listener1.calls).to eq([:open, :accept, :accept, :eof, :delete])
+          expect(listener1.calls_history).to eq([:open, :accept, :accept, :eof, :delete])
           expect(listener1.lines.size).to eq(2)
         end
       end
@@ -293,7 +293,7 @@ module FileWatch
           actions.activate_quietly
           reading.subscribe(observer)
           actions.assert_no_errors
-          expect(listener1.calls).to eq([:open, :accept, :accept, :eof, :delete])
+          expect(listener1.calls_history).to eq([:open, :accept, :accept, :eof, :delete])
           expect(listener1.lines.size).to eq(2)
         end
       end
@@ -307,7 +307,7 @@ module FileWatch
           actions.activate_quietly
           reading.subscribe(observer)
           actions.assert_no_errors
-          expect(listener1.calls).to eq([:open, :accept, :accept, :eof, :delete])
+          expect(listener1.calls_history).to eq([:open, :accept, :accept, :eof, :delete])
           expect(listener1.lines.size).to eq(2)
         end
       end

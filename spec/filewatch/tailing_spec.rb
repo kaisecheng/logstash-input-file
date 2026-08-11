@@ -1,5 +1,6 @@
 # encoding: utf-8
 require 'stud/temporary'
+require 'timeout'
 require_relative 'spec_helper'
 require 'filewatch/observing_tail'
 
@@ -43,14 +44,24 @@ module FileWatch
 
     describe "max open files (set to 1)" do
       let(:max) { 1 }
-      let(:wait_before_quit) { 0.15 }
       let(:stat_interval) { 0.01 }
       let(:discover_interval) { 4 }
       let(:start_new_files_at) { :beginning }
+      let(:listener_notification_queue) { Queue.new }
+      let(:observer) { TestObserver.new(nil, listener_notification_queue) }
+      let(:completion_listener) { listener1 }
+      let(:expected_calls_history) { [:open, :accept, :accept] }
       let(:actions) do
         RSpec::Sequencing
-          .run_after(wait_before_quit, "quit after a short time") do
-            tailing.quit
+          .run("quit after expected listener calls") do
+            begin
+              Timeout.timeout(30) do
+                # Block on listener notifications until the complete call history matches
+                listener_notification_queue.pop until completion_listener.calls_history == expected_calls_history
+              end
+            ensure
+              tailing.quit
+            end
           end
       end
 
@@ -70,24 +81,25 @@ module FileWatch
           actions.assert_no_errors
           expect(tailing.settings.max_active).to eq(max)
           expect(listener1.lines).to eq(["line1", "line2"])
-          expect(listener1.calls).to eq([:open, :accept, :accept])
-          expect(listener2.calls).to be_empty
+          expect(listener1.calls_history).to eq([:open, :accept, :accept])
+          expect(listener2.calls_history).to be_empty
         end
       end
 
       context "when close_older is set" do
-        let(:wait_before_quit) { 0.8 }
         let(:opts) { super().merge(:close_older => 0.1, :max_open_files => 1, :stat_interval => 0.1) }
         let(:suffix) { "B" }
+        let(:completion_listener) { listener2 }
+        let(:expected_calls_history) { [:open, :accept, :accept, :timed_out] }
         it "opens both files" do
           actions.activate_quietly
           tailing.watch_this(watch_dir)
           tailing.subscribe(observer)
           actions.assert_no_errors
           expect(tailing.settings.max_active).to eq(1)
-          expect(listener2.calls).to eq([:open, :accept, :accept, :timed_out])
+          expect(listener2.calls_history).to eq([:open, :accept, :accept, :timed_out])
           expect(listener2.lines).to eq(["line-A", "line-B"])
-          expect(listener1.calls).to eq([:open, :accept, :accept, :timed_out])
+          expect(listener1.calls_history).to eq([:open, :accept, :accept, :timed_out])
           expect(listener1.lines).to eq(["line1", "line2"])
         end
       end
@@ -118,7 +130,7 @@ module FileWatch
         actions.activate_quietly
         tailing.subscribe(observer)
         actions.assert_no_errors
-        expect(listener1.calls).to eq([:open, :accept, :accept])
+        expect(listener1.calls_history).to eq([:open, :accept, :accept])
         expect(listener1.lines).to eq(["line1", "line2"])
       end
     end
@@ -145,7 +157,7 @@ module FileWatch
         actions.activate_quietly
         tailing.subscribe(observer)
         actions.assert_no_errors
-        expect(listener1.calls).to eq([:open, :accept, :accept])
+        expect(listener1.calls_history).to eq([:open, :accept, :accept])
         expect(listener1.lines).to eq(["line1", "line2"])
       end
     end
@@ -171,7 +183,7 @@ module FileWatch
           RSpec::Sequencing.run_after(quit_after, "quit") { tailing.quit }
           tailing.subscribe(observer)
           expect(tailing.watch.watched_files_collection).to be_empty
-          expect(listener1.calls).to eq([:delete])
+          expect(listener1.calls_history).to eq([:delete])
         end
       end
 
@@ -181,7 +193,7 @@ module FileWatch
           RSpec::Sequencing.run_after(quit_after, "quit") { tailing.quit }
           tailing.subscribe(observer)
           expect(tailing.watch.watched_files_collection).to be_empty
-          expect(listener1.calls).to eq([:delete])
+          expect(listener1.calls_history).to eq([:delete])
         end
       end
 
@@ -191,7 +203,7 @@ module FileWatch
           RSpec::Sequencing.run_after(quit_after, "quit") { tailing.quit }
           tailing.subscribe(observer)
           expect(tailing.watch.watched_files_collection).to be_empty
-          expect(listener1.calls).to eq([:delete])
+          expect(listener1.calls_history).to eq([:delete])
         end
       end
 
@@ -201,7 +213,7 @@ module FileWatch
           RSpec::Sequencing.run_after(quit_after, "quit") { tailing.quit }
           tailing.subscribe(observer)
           expect(tailing.watch.watched_files_collection).to be_empty
-          expect(listener1.calls).to eq([:delete])
+          expect(listener1.calls_history).to eq([:delete])
         end
       end
     end
@@ -235,7 +247,7 @@ module FileWatch
         actions.activate_quietly
         tailing.subscribe(observer)
         actions.assert_no_errors
-        expect(listener1.calls).to eq([:open, :accept, :accept, :accept, :accept, :accept, :accept])
+        expect(listener1.calls_history).to eq([:open, :accept, :accept, :accept, :accept, :accept, :accept])
         expect(listener1.lines).to eq(["line1", "line2", "line3", "line4", "lineA", "lineB"])
       end
     end
@@ -269,9 +281,9 @@ module FileWatch
         actions.activate_quietly
         tailing.subscribe(observer)
         actions.assert_no_errors
-        expect(listener1.calls).to eq([:open, :accept, :accept, :delete])
+        expect(listener1.calls_history).to eq([:open, :accept, :accept, :delete])
         expect(listener1.lines).to eq(["line1", "line2"])
-        expect(new_file_listener.calls).to eq([])
+        expect(new_file_listener.calls_history).to eq([])
         expect(new_file_listener.lines).to eq([])
       end
     end
@@ -290,7 +302,7 @@ module FileWatch
             tailing.watch_this(watch_dir)
           end
           .then("wait") do
-            wait(0.5).for{listener1.calls.last}.to eq(:timed_out)
+            wait(0.5).for{listener1.calls_history.last}.to eq(:timed_out)
           end
           .then("rename file") do
             FileUtils.mv(file_path, file_path2)
@@ -311,9 +323,9 @@ module FileWatch
         tailing.subscribe(observer)
         actions.assert_no_errors
         expect(listener1.lines).to eq([])
-        expect(listener1.calls).to eq([:open, :timed_out, :delete])
+        expect(listener1.calls_history).to eq([:open, :timed_out, :delete])
         expect(listener2.lines).to eq(["line3", "line4"])
-        expect(listener2.calls).to eq([:open, :accept, :accept, :timed_out])
+        expect(listener2.calls_history).to eq([:open, :accept, :accept, :timed_out])
       end
     end
 
@@ -340,7 +352,7 @@ module FileWatch
         actions.activate_quietly
         tailing.subscribe(observer)
         actions.assert_no_errors
-        expect(listener1.calls).to eq([:open, :accept, :accept])
+        expect(listener1.calls_history).to eq([:open, :accept, :accept])
         expect(listener1.lines).to eq(["line3", "line4"])
       end
     end
@@ -354,7 +366,7 @@ module FileWatch
         end
         .then("watch and wait") do
           tailing.watch_this(watch_dir)
-          wait(1.25).for{listener1.calls}.to eq([:open, :timed_out])
+          wait(1.25).for{listener1.calls_history}.to eq([:open, :timed_out])
         end
         .then("quit") do
           tailing.quit
@@ -381,16 +393,16 @@ module FileWatch
             File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
           end
           .then("wait for file to be read") do
-            wait(0.5).for{listener1.calls}.to eq([:open, :accept, :accept]), "file is not read"
+            wait(0.5).for{listener1.calls_history}.to eq([:open, :accept, :accept]), "file is not read"
           end
           .then("wait for file to be read and time out") do
-            wait(0.75).for{listener1.calls}.to eq([:open, :accept, :accept, :timed_out]), "file did not timeout the first time"
+            wait(0.75).for{listener1.calls_history}.to eq([:open, :accept, :accept, :timed_out]), "file did not timeout the first time"
           end
           .then("append more lines to file after file ages more than close_older") do
             File.open(file_path, "ab") { |file|  file.write("line3\nline4\n") }
           end
           .then("wait for last timeout") do
-            wait(0.75).for{listener1.calls}.to eq([:open, :accept, :accept, :timed_out, :open, :accept, :accept, :timed_out]), "file did not timeout the second time"
+            wait(0.75).for{listener1.calls_history}.to eq([:open, :accept, :accept, :timed_out, :open, :accept, :accept, :timed_out]), "file did not timeout the second time"
           end
           .then("quit") do
             tailing.quit
@@ -423,7 +435,7 @@ module FileWatch
       it "no files are read" do
         actions.activate_quietly
         tailing.subscribe(observer)
-        expect(listener1.calls).to eq([])
+        expect(listener1.calls_history).to eq([])
         expect(listener1.lines).to eq([])
       end
     end
@@ -451,8 +463,8 @@ module FileWatch
           end
           .then("wait") do
             wait(4).for do
-              listener1.lines.size == 32 && listener2.calls == [:delete] && listener3.calls == [:open, :accept, :timed_out]
-            end.to eq(true), "listener1.lines != 32 or listener2.calls != [:delete] or listener3.calls != [:open, :accept, :timed_out]"
+              listener1.lines.size == 32 && listener2.calls_history == [:delete] && listener3.calls_history == [:open, :accept, :timed_out]
+            end.to eq(true), "listener1.lines != 32 or listener2.calls_history != [:delete] or listener3.calls_history != [:open, :accept, :timed_out]"
           end
           .then("quit") do
             tailing.quit
@@ -481,7 +493,7 @@ module FileWatch
             tailing.watch_this(watch_dir)
           end
           .then("wait for lines") do
-            wait(1.5).for{listener1.calls}.to eq([:open, :accept, :accept, :timed_out])
+            wait(1.5).for{listener1.calls_history}.to eq([:open, :accept, :accept, :timed_out])
           end
           .then("quit") do
             tailing.quit
@@ -516,7 +528,7 @@ module FileWatch
       it "no files are read" do
         actions.activate_quietly
         tailing.subscribe(observer)
-        expect(listener1.calls).to eq([])
+        expect(listener1.calls_history).to eq([])
         expect(listener1.lines).to eq([])
       end
     end
@@ -535,7 +547,7 @@ module FileWatch
             File.open(file_path, "ab") { |file|  file.write("line3\nline4\n") }
           end
           .then("wait for lines") do
-            wait(2).for{listener1.calls}.to eq([:open, :accept, :accept, :timed_out])
+            wait(2).for{listener1.calls_history}.to eq([:open, :accept, :accept, :timed_out])
           end
           .then_after(0.1, "quit after allowing time to close the file") do
             tailing.quit
@@ -562,7 +574,7 @@ module FileWatch
             File.open(file_path, "wb") { |file|  file.write("line1\nline2") }
           end
           .then("wait for :timeout") do
-            wait(2).for{listener1.calls}.to eq([:open, :timed_out])
+            wait(2).for{listener1.calls_history}.to eq([:open, :timed_out])
           end
           .then_after(0.75, "quit after allowing time to close the file") do
             tailing.quit

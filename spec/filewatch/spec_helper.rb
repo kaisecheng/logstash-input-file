@@ -117,47 +117,56 @@ module FileWatch
 
   class TestObserver
     class Listener
-      attr_reader :path, :lines, :calls
+      attr_reader :path, :lines, :calls_history
 
-      def initialize(path, lines)
+      def initialize(path, lines, notification_queue)
         @path = path
         @lines = lines || Concurrent::Array.new
-        @calls = Concurrent::Array.new
+        @calls_history = Concurrent::Array.new
+        @notification_queue = notification_queue
       end
 
       def accept(line)
         @lines << line
-        @calls << :accept
+        record(:accept)
       end
 
       def deleted
-        @calls << :delete
+        record(:delete)
       end
 
       def opened
-        @calls << :open
+        record(:open)
       end
 
       def error
-        @calls << :error
+        record(:error)
       end
 
       def eof
-        @calls << :eof
+        record(:eof)
       end
 
       def timed_out
-        @calls << :timed_out
+        record(:timed_out)
       end
 
       def reading_completed
-        @calls << :reading_completed
+        record(:reading_completed)
+      end
+
+      private
+
+      def record(event)
+        @calls_history << event
+        @notification_queue << [@path, event] unless @notification_queue.nil?
       end
     end
 
     attr_reader :listeners
 
-    def initialize(combined_lines = nil)
+    def initialize(combined_lines = nil, notification_queue = nil)
+      @notification_queue = notification_queue
       @listeners = Concurrent::Hash.new { |hash, key| hash[key] = new_listener(key, combined_lines) }
     end
 
@@ -172,7 +181,7 @@ module FileWatch
     private
 
     def new_listener(path, lines = nil)
-      Listener.new(path, lines)
+      Listener.new(path, lines, @notification_queue)
     end
 
   end
