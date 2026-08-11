@@ -7,6 +7,7 @@ require "logstash/inputs/file"
 
 require "tempfile"
 require "stud/temporary"
+require "timecop"
 require "logstash/codecs/multiline"
 
 describe LogStash::Inputs::File do
@@ -326,6 +327,32 @@ describe LogStash::Inputs::File do
       wait_for_file_completion(sample_file)
       watched_files = plugin.watcher.watch.watched_files_collection
       expect( watched_files ).to be_empty
+    end
+
+    context 'with sincedb cleanup enabled' do
+      let(:options) do
+        super().merge(
+          'exit_after_read' => true,
+          'sincedb_clean_after' => '1 second',
+          'sincedb_write_interval' => 0
+        )
+      end
+
+      it 'cleans up sincedb entry' do
+        wait_for_file_completion(sample_file)
+        expect(@run_thread.join(30)).to equal(@run_thread)
+
+        sincedb_collection = plugin.watcher.sincedb_collection
+        expect(sincedb_collection.keys.size).to eq(1)
+        sincedb_value = sincedb_collection.get(sincedb_collection.keys.first)
+        after_expiry = Time.at(sincedb_value.last_changed_at + 2)
+
+        expect(File.read(options['sincedb_path'])).to_not be_empty
+        Timecop.freeze(after_expiry) { sincedb_collection.flush_at_interval }
+
+        expect(sincedb_collection.keys).to be_empty
+        expect(File.read(options['sincedb_path'])).to be_empty
+      end
     end
   end
 
