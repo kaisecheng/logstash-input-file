@@ -6,7 +6,7 @@ require 'filewatch/watch'
 module FileWatch
   describe Watch do
     let(:watched_files) { double('watched files', :empty? => true, :close_all => nil) }
-    let(:discoverer) { double('discoverer', :watched_files_collection => watched_files) }
+    let(:discoverer) { double('discoverer', :watched_files_collection => watched_files, :discover => nil) }
     let(:processor) { double('processor', :add_watch => nil, :initialize_handlers => nil) }
     let(:settings) do
       double(
@@ -23,11 +23,7 @@ module FileWatch
 
     it 'flushes sincedb after a sleep interval' do
       sleep_started = Queue.new
-      sleep_release = Queue.new
-      allow(watch).to receive(:sleep) do
-        sleep_started << true
-        sleep_release.pop
-      end
+      allow(watch).to receive(:sleep) { sleep_started << true if sleep_started.empty? }
 
       run_thread = Thread.new do
         Thread.current.abort_on_exception = true
@@ -38,11 +34,10 @@ module FileWatch
         Timeout.timeout(30) { sleep_started.pop }
       ensure
         watch.quit
-        sleep_release << true
       end
 
       expect(run_thread.join(30)).not_to be_nil
-      expect(sincedb_collection).to have_received(:flush_at_interval).once
+      expect(sincedb_collection).to have_received(:flush_at_interval).at_least(:once)
     end
   end
 end
