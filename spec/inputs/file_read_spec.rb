@@ -299,10 +299,9 @@ describe LogStash::Inputs::File do
 
     before do
       plugin.register
-      completions = file_completions
       allow(plugin).to receive(:handle_deletable_path).and_wrap_original do |original, path|
         original.call(path)
-        completions << [path, File.exist?(path)]
+        file_completions << [path, File.exist?(path)]
       end
 
       File.open(sample_file, 'w') { |fd| fd.write("sample-content\n") }
