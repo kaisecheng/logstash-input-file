@@ -295,11 +295,17 @@ describe LogStash::Inputs::File do
     end
 
     let(:file_completions) { Queue.new }
+    let(:sincedb_flush_notifications) { Queue.new }
 
     let(:sample_file) { File.join(temp_directory, "sample.log") }
 
     before do
       plugin.register
+      allow_any_instance_of(FileWatch::SincedbCollection).to receive(:flush_at_interval).and_wrap_original do |original|
+        result = original.call
+        sincedb_flush_notifications << true
+        result
+      end
       allow(plugin).to receive(:handle_deletable_path).and_wrap_original do |original, path|
         original.call(path)
         file_completions << [path, File.exist?(path)]
@@ -331,16 +337,13 @@ describe LogStash::Inputs::File do
 
     context 'with sincedb cleanup enabled' do
       let(:options) do
-        super().merge(
-          'exit_after_read' => true,
-          'sincedb_clean_after' => '1 second',
-          'sincedb_write_interval' => 0
-        )
+        super().merge('sincedb_clean_after' => '1 second')
       end
+
+      around { |example| Timecop.freeze { example.run } }
 
       it 'cleans up sincedb entry' do
         wait_for_file_completion(sample_file)
-        expect(@run_thread.join(30)).not_to be_nil
 
         sincedb_collection = plugin.watcher.sincedb_collection
         expect(sincedb_collection.keys.size).to eq(1)
@@ -348,7 +351,12 @@ describe LogStash::Inputs::File do
         after_expiry = Time.at(sincedb_value.last_changed_at + 2)
 
         expect(File.read(options['sincedb_path'])).to_not be_empty
-        Timecop.freeze(after_expiry) { sincedb_collection.flush_at_interval }
+        Timecop.freeze(after_expiry) do
+          Timeout.timeout(30) do
+            # Wait for scheduled flushes until the expired entry is removed
+            sincedb_flush_notifications.pop until sincedb_collection.keys.empty?
+          end
+        end
 
         expect(sincedb_collection.keys).to be_empty
         expect(File.read(options['sincedb_path'])).to be_empty
